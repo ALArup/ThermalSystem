@@ -262,190 +262,6 @@ class Solver:
         
         self.step_idx += 1
 
-    def CRAH_test(self):
-        T_1h = T_ha
-        T_2c = T_chws
-
-        T_1h_0 = T_ha[-10]
-        T_2c_0 = T_chws[-10]
-
-        T_1c_0 = 30.5
-        T_2h_0 = 32.0
-
-        V_1_in_0 = 519.2939525358590
-        V_2_in_0 = 0.2050217076491
-
-        Q_0 = 6804.7
-
-        C_air   = air.cp * air.density * V_1_in_0
-        C_water = water.cp * water.density * V_2_in_0
-
-        C_min_0 = min(C_air, C_water)
-        C_r_0   = C_min_0 / max(C_air, C_water)
-
-        Q_max_0 = C_min_0 * (T_1h_0 - T_2c_0)
-
-        dT_1_0 = np.abs(T_1h_0 - T_2h_0)
-        dT_2_0 = np.abs(T_1c_0 - T_2c_0)
-
-        dTln_0 = (
-            (dT_1_0 - dT_2_0)
-            / np.log(dT_1_0 / dT_2_0)
-        )
-
-        UA_0 = Q_0 / dTln_0
-        NTU_0 = UA_0 / C_min_0
-
-        eps_0 = (1.0 - np.exp(-NTU_0 * (1.0 - C_r_0))) / (1.0 - C_r_0 * np.exp(-NTU_0 * (1.0 - C_r_0)))
-
-        T_1c_0 = T_1h_0 - Q_0 / C_air
-        T_2h_0 = T_2c_0 + Q_0 / C_water
-
-        T1ref = 41.7
-        T2ref = 30.5
-
-        dT1 = T_1h_0 - T1ref
-        dT2 = T_1c_0 - T2ref
-
-        V_1_in_next = min(V_1_in_0 + dT1 * 3.5492, 608.243)
-        V_2_in_next = min(V_2_in_0 + dT2 * 0.0009, 0.2401)
-
-        table = pd.DataFrame([{
-            "t"     :      -10,
-            "V_1_in":   V_1_in_0,
-            "V_2_in":   V_2_in_0,
-            "T_1c":     T_1c_0,
-            "T_2h":     T_2h_0,
-            "C_min":    C_min_0,
-            "C_r":      C_r_0,
-            "Q_max":    Q_max_0,
-            "dTln":     dTln_0,
-            "UA":       UA_0,
-            "NTU":      NTU_0,
-            "eps":      eps_0,
-            "Q_actual": Q_0,
-            "T_1h":     T_1h_0,
-            "T_2c":     T_2c_0,
-            "dT1":      dT1,
-            "dT2":      dT2,
-            "V_1_in_next": V_1_in_next, 
-            "V_2_in_next": V_2_in_next, 
-        }])
-
-        for t in range(-9, 2000):
-            # Previous row
-            V_1_in = table["V_1_in_next"].iloc[-1]
-            V_2_in = table["V_2_in_next"].iloc[-1]
-
-            T_2h = table["T_2h"].iloc[-1]
-            T_1c = table["T_1c"].iloc[-1]
-
-            Q_prev = table["Q_actual"].iloc[-1]
-
-            # Current inlet temperatures
-            T_1h_i = T_1h.loc[t]
-            T_2c_i = T_2c.loc[t]
-
-            # Capacity rates
-            C_air   = air.cp * air.density * V_1_in
-            C_water = water.cp * water.density * V_2_in
-
-            C_min = min(C_air, C_water)
-            C_r   = C_min / max(C_air, C_water)
-
-            # Maximum possible heat transfer
-            Q_max = C_min * (T_1h_i - T_2c_i)
-
-            # LMTD
-            # LMTD
-            dT_1 = np.abs(T_1h_i - T_2h)
-            dT_2 = np.abs(T_1c - T_2c_i)
-
-            if np.isclose(dT_1, dT_2):
-                dTln = dT_1
-            else:
-                dTln = (
-                    (dT_1 - dT_2)
-                    / np.log(dT_1 / dT_2)
-                )
-
-            # UA / NTU
-            UA = Q_prev / dTln
-            NTU = UA / C_min
-
-            # UA / NTU
-            UA  = Q_prev / dTln
-            NTU = UA / C_min
-
-            # Effectiveness
-            eps = (
-                1.0 - np.exp(-NTU * (1.0 - C_r))
-            ) / (
-                1.0 - C_r * np.exp(-NTU * (1.0 - C_r))
-            )
-
-            # Heat transfer
-            Q_actual = Q_max * eps
-
-            # Outlet temperatures
-            T_1c_new = T_1h_i - Q_actual / C_air
-            T_2h_new = T_2c_i + Q_actual / C_water
-
-            # Controller temperature differences
-            dT1 = T_1h_i - T1ref
-            dT2 = T_1c_new - T2ref
-
-            # Next flow rates
-            V_1_in_next = min(
-                V_1_in + dT1 * 3.5492,
-                608.243
-            )
-
-            V_2_in_next = min(
-                V_2_in + dT2 * 0.0009,
-                0.2401
-            )
-
-            # Save timestep
-            table.loc[len(table)] = {
-                "t":             t,
-                "V_1_in":        V_1_in,
-                "V_2_in":        V_2_in,
-                "T_1c":          T_1c_new,
-                "T_2h":          T_2h_new,
-                "C_min":         C_min,
-                "C_r":           C_r,
-                "Q_max":         Q_max,
-                "dTln":          dTln,
-                "UA":            UA,
-                "NTU":           NTU,
-                "eps":           eps,
-                "Q_actual":      Q_actual,
-                "T_1h":          T_1h_i,
-                "T_2c":          T_2c_i,
-                "dT1":           dT1,
-                "dT2":           dT2,
-                "V_1_in_next":   V_1_in_next,
-                "V_2_in_next":   V_2_in_next
-            }
-
-
-        print(table.to_string(index=False))
-
-        fig, ax = plt.subplots(figsize = (8, 4))
-
-        ax.plot(table["t"], table["UA"], label = "UA")
-        ax.grid()
-        ax.legend()
-        plt.savefig("test1.png")
-
-        fig, ax = plt.subplots(figsize = (8, 4))
-        
-        ax.plot(table["t"], table["Q_actual"], label = "Q_actual")
-        ax.grid()
-        ax.legend()
-        plt.savefig("test2.png")
-
     def compute_next_step(self):
         prev_step = self.steps[self.step_idx - 1]
 
@@ -510,6 +326,9 @@ class Solver:
         T_1h_CRAH = T_ha[self.step_idx]
         T_2c_CRAH = T_chws[self.step_idx]
 
+        T_1h_CRAH = T_out_HA
+        T_2c_CRAH = T_out_TT
+
         T_1c_CRAH = prev_step["T_1c_CRAH_next"]
         T_2h_CRAH = prev_step["T_2h_CRAH_next"]
 
@@ -534,18 +353,10 @@ class Solver:
                 / np.log(dT_1 / dT_2)
             )
 
-        # dTln = T_ln[self.step_idx]
-
         UA = Q_prev / dTln
         NTU = UA / C_min
 
-        # eps = compute_eps(NTU, C_r, self.HX_type)
-
-        eps = (
-            1.0 - np.exp(-NTU * (1.0 - C_r))
-        ) / (
-            1.0 - C_r * np.exp(-NTU * (1.0 - C_r))
-        )
+        eps = compute_eps(NTU, C_r, self.HX_type)
 
         Q_actual_CRAH =  Q_max * eps
 
@@ -615,7 +426,76 @@ class Solver:
         self.data = pd.DataFrame.from_dict( self.steps, orient = "index")
         self.data.to_excel("ThermalData.xlsx", index = False, sheet_name = "Sheet 1", float_format = "%.10f")
 
-    def plot_data(self):
+    def plot_data_TT_WCC(self):
+        t              = self.data.iloc[:, 0]
+        
+        V_in_CA        = self.data.iloc[:, 1]
+        T_in_CA        = self.data.iloc[:, 2]
+        V_out_CA       = self.data.iloc[:, 3]
+        T_out_CA       = self.data.iloc[:, 4]
+
+        V_in_IT        = self.data.iloc[:, 5]
+        T_in_IT        = self.data.iloc[:, 6]
+        T_out_IT       = self.data.iloc[:, 7]
+        V_out_IT       = self.data.iloc[:, 8]
+
+        V_in_HA        = self.data.iloc[:, 9]
+        T_in_HA        = self.data.iloc[:, 10]
+        V_out_HA       = self.data.iloc[:, 11]
+        T_out_HA       = self.data.iloc[:, 12]
+
+        V_in_WCC       = self.data.iloc[:, 13]
+        T_in_WCC       = self.data.iloc[:, 14]
+        V_out_WCC      = self.data.iloc[:, 15]
+        T_out_WCC      = self.data.iloc[:, 16]
+
+        V_in_TT        = self.data.iloc[:, 17]
+        T_in_TT        = self.data.iloc[:, 18]
+        T_out_TT       = self.data.iloc[:, 19]
+
+        V_1h_CRAH      = self.data.iloc[:, 20]
+        V_2c_CRAH      = self.data.iloc[:, 21]
+
+        T_1h_CRAH      = self.data.iloc[:, 22]
+        T_2c_CRAH      = self.data.iloc[:, 23]
+
+        C_min          = self.data.iloc[:, 24]
+        C_r            = self.data.iloc[:, 25]
+        Q_max          = self.data.iloc[:, 26]
+        dTln           = self.data.iloc[:, 27]
+        UA             = self.data.iloc[:, 28]
+        NTU            = self.data.iloc[:, 29]
+        eps            = self.data.iloc[:, 30]
+        Q_actual_CRAH  = self.data.iloc[:, 31]
+
+        T_1c_CRAH      = self.data.iloc[:, 32]
+        T_2h_CRAH      = self.data.iloc[:, 33]
+
+        V_1_out_CRAH   = self.data.iloc[:, 34]
+        V_2_out_CRAH   = self.data.iloc[:, 35]
+
+        T_1c_CRAH_next = self.data.iloc[:, 36]
+        T_2h_CRAH_next = self.data.iloc[:, 37]
+
+        fig, ax = plt.subplots(figsize = (8, 4))
+
+        ax.plot(t, T_in_TT, color = 'r', label = "Thermal Tank Entry Temp")
+        ax.plot(t, T_out_TT, color = 'b', label = "Thermal Tank Exit Temp")
+        ax.grid()
+        ax.legend()
+
+        plt.savefig("Thermal_Tank_Temps.png")
+
+        fig, ax = plt.subplots(figsize = (8, 4))
+        
+        ax.plot(t, T_in_WCC, color = 'r', label = "WCC Entry Temp")
+        ax.plot(t, T_out_WCC, color = 'b', label = "WCC Exit Temp")
+        ax.grid()
+        ax.legend()
+
+        plt.savefig("WCC_Temps.png")
+
+    def plot_data_HX(self):
         t              = self.data.iloc[:, 0]
 
         V_in_CA        = self.data.iloc[:, 1]
@@ -666,7 +546,6 @@ class Solver:
         T_1c_CRAH_next = self.data.iloc[:, 36]
         T_2h_CRAH_next = self.data.iloc[:, 37]
 
-
         fig, ax = plt.subplots(figsize = (8, 4))
 
         ax.plot(t, T_2c_CRAH, label = "T_2c_CRAH")
@@ -686,15 +565,6 @@ class Solver:
         ax.legend()
 
         plt.savefig("HX_energy.png")
-
-        fig, ax = plt.subplots(figsize = (8, 4))
-
-        ax.plot(t, V_2c_CRAH, label = "V_2c_CRAH")
-        ax.plot(t, V_1h_CRAH, label = "V_1h_CRAH")
-        ax.grid()
-        ax.legend()
-
-        plt.savefig("HX_flow_rates.png")
 
         dT1 = T_1h_CRAH - self.T_ref_1
         dT2 = T_1c_CRAH - self.T_ref_2
@@ -750,9 +620,8 @@ class Solver:
         while self.step_idx < self.n_steps:
             self.compute_next_step()
         self.print_data()
-        self.plot_data()
-
-        self.CRAH_test()
+        self.plot_data_HX()
+        self.plot_data_TT_WCC()
 
 density_air, cp_air = 1.163, 1.006
 density_water, cp_water = 997.3, 4.16
