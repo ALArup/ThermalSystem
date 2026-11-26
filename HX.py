@@ -7,12 +7,24 @@ pd.set_option("display.max_rows", None)
 Kp1 = 0.04
 Kp2 = 0.025
 
-data = pd.read_excel("data.xlsm", sheet_name = "3 - CRAH")
+HX_data  = pd.read_excel("data.xlsm", sheet_name = "3 - CRAH")
+HA_data  = pd.read_excel("data.xlsm", sheet_name = "2 - Hot Aisle")
+CA_data  = pd.read_excel("data.xlsm", sheet_name = "2 - Cold Aisle")
+ITR_data = pd.read_excel("data.xlsm", sheet_name = "1 - AC IT Racks")
 
-T_ha = list(data.iloc[9:2020, 9])
-T_chws = list(data.iloc[9:2020, 10])
+T_ha     = list(HX_data.iloc[9:2020, 9])
+T_chws   = list(HX_data.iloc[9:2020, 10])
 
-class sim_step():
+V_HA_in  = list(HA_data.iloc[9:2020, 7])
+T_HA_in  = list(HA_data.iloc[9:2020, 8])
+
+V_CA_in  = list(CA_data.iloc[9:2020, 7])
+T_CA_in  = list(CA_data.iloc[9:2020, 8])
+
+V_ITR_in = list(ITR_data.iloc[9:2020, 7])
+T_ITR_in = list(ITR_data.iloc[9:2020, 8])
+
+class HX_step():
     def __init__(self):
         pass
 
@@ -145,7 +157,7 @@ class HeatExchanger():
         print("====================================\n")
 
     def compute_initial_step(self):
-        step_0 = sim_step()
+        step_0 = HX_step()
         step_0.generate_step_properties(
             0.0,
             self.V_air,
@@ -178,7 +190,7 @@ class HeatExchanger():
     def compute_next_step(self):
         prev_step = self.steps[self.idx - 1]
 
-        step = sim_step()
+        step = HX_step()
         step.generate_step_properties(
             self.idx * self.dt,
             prev_step.V_air_new,
@@ -220,30 +232,126 @@ class HeatExchanger():
 
         self.export_data()
 
-sim_1 = HeatExchanger(
-        6804.7,            # in kW
-        "Counter-current",
-        1.163,
-        997.3,
-        1.006,
-        4.16,
+class A_step():
+    def __init__(self, _V_cv: float, _dt: float, _T_h_prev: float, _T_in: float, _V_in: float):
+        a_i = 1.0 - (_V_in * _dt) / _V_cv
+        b_i = _V_in / _V_cv
 
-        519.293952535859,
-        0.205021707649114,
+        self.V_in  = _V_in                                              # Just for data exporting purposes
+        self.T_in  = _T_in                                              # Just for data exporting purposes
+        self.T_mix = a_i * _T_h_prev + b_i * _T_in                      # Mixed control volume temperature
+        self.T_out = self.T_mix                                         # Assumed to be the same as the mixed temperature
 
-        24.0,
-        32.0,
-        30.5,
-        41.7,
+class Aisle():
+    steps    = {}
+    step_idx = 0
+    
+    def __init__(self, _V_cv: float, _dt: float, _T_h_0: float, _T_in_0: float, _V_in_0: float, T_A_in, V_A_in, _aisle_name: str):
+        self.aisle_name = _aisle_name
 
-        608.024253447501,
-        0.240053191694498,
-        1.0
-)
+        self.V_cv   = _V_cv
+        self.dt     = _dt
+        self.T_h_0  = _T_h_0
+        self.T_in_0 = _T_in_0
+        self.V_in   = _V_in_0
 
-sim_1.run()
-print(sim_1.print_properties())
-print(sim_1.data)
+        self.T_A_in = T_A_in
+        self.V_A_in = V_A_in
 
-# print(data.iloc[12:2020, 9])
-# print(data.iloc[12:2020, 10])
+        step_0 = A_step(self.V_cv, self.dt, self.T_h_0, self.T_in_0, self.V_in)
+
+        self.steps[self.step_idx] = step_0
+        self.step_idx += 1
+
+    def compute_next_step(self):
+        step = A_step(self.V_cv, self.dt, self.steps[self.step_idx - 1].T_mix, self.T_A_in[self.step_idx - 1], self.V_A_in[self.step_idx - 1])
+
+        self.steps[self.step_idx] = step 
+        self.step_idx += 1
+
+    def export_data(self):
+        self.data = pd.DataFrame([vars(step) for step in self.steps.values()])
+        self.data.to_excel("ThermalData.xlsx", index = False, sheet_name = self.aisle_name)
+
+    def run(self):
+        while self.step_idx < 2000:
+            self.compute_next_step()
+
+        self.export_data()
+
+class ITR_step:
+    def __init__(self, _V_in: float, _T_in: float, _Q: float, _density: float, _cp: float, _dt: float):
+        self.V_in  = _V_in
+        self.T_in  = _T_in
+        self.Q     = _Q
+
+        self.T_out = self.T_in + _dt * self.Q / (_cp * _density * self.V_in)   
+
+class ITRacks():
+    steps = {}
+    step_idx = 0
+    
+    def __init__(self, _dt: float, _Q: float, _T_in: float, _V_in: float, _density: float, _cp: float):
+        self.dt          = _dt
+        self.Q           = _Q
+        self.T_in        = _T_in
+        self.V_in        = _V_in
+
+        self.density     = _density
+        self.cp          = _cp
+
+        step_0 = ITR_step(self.V_in, self.T_in, self.Q, self.density, self.cp, self.dt)
+
+        self.steps[self.step_idx] = step_0
+        self.step_idx += 1
+
+    def compute_next_step(self):
+        step = ITR_step(V_ITR_in[self.step_idx], T_ITR_in[self.step_idx], self.Q, self.density, self.cp, self.dt)
+
+        self.steps[self.step_idx] = step
+        self.step_idx += 1
+
+    def export_data(self):
+        self.data = pd.DataFrame([vars(step) for step in self.steps.values()])
+        self.data.to_excel("ThermalData.xlsx", index = False, sheet_name = "AC IT Racks")
+
+    def run(self):
+        while self.step_idx < 2000:
+            self.compute_next_step()
+        
+        self.export_data()
+
+# HX_sim = HeatExchanger(
+#         6804.7,            # in kW
+#         "Counter-current",
+#         1.163,
+#         997.3,
+#         1.006,
+#         4.16,
+
+#         519.293952535859,
+#         0.205021707649114,
+
+#         24.0,
+#         32.0,
+#         30.5,
+#         41.7,
+
+#         608.024253447501,
+#         0.240053191694498,
+#         1.0
+# )
+# HX_sim.run()
+# print(HX_sim.print_properties())
+# print(HX_sim.data)
+
+# HA_sim = Aisle(3784.125, 1.0, 41.7, 41.7, 519.29, T_HA_in, V_HA_in, "HA")
+# HA_sim.run()
+# print(HA_sim.data)
+
+# CA_sim = Aisle(3123.645, 1.0, 30.5, 30.5, 519.29, T_CA_in, V_CA_in, "CA")
+# CA_sim.run()
+# print(CA_sim.data)
+
+ITR_sim = ITRacks(1.0, 6804.7, 30.5, 519.29, 1.163, 1.006)
+ITR_sim.run()
